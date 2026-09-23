@@ -1,9 +1,9 @@
 import requests
 import json
 import os
+from datetime import datetime, timezone, timedelta
 
 SEEN_FILE = "seen_posts.json"
-# 從 GitHub Actions 的環境變數中讀取 Webhook（若在本地測試可直接填入字串）
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "YOUR_DISCORD_WEBHOOK_URL")
 
 def load_seen_posts():
@@ -74,22 +74,37 @@ def fetch_roblox_official_news():
         data = response.json()
         
         topics = data.get("topic_list", {}).get("topics", [])
-        
         print(f"正在檢索最新 {len(topics)} 筆討論...")
         
         new_matched_count = 0
         new_seen_ids = set(seen_posts)
         
+        # 設定時間限制：只接受最近 3 天內的文章 (避免抓到 21 天前的舊置頂文)
+        now = datetime.now(timezone.utc)
+        time_limit = now - timedelta(days=3)
+        
         for topic in topics:
             topic_id = topic.get("id")
             
+            # 就算還沒被記錄過，如果文章太舊也直接加入 seen 避免它被推播
+            created_at_str = topic.get("created_at", "")
+            if created_at_str:
+                try:
+                    # 解析 ISO 時間
+                    created_at_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    if created_at_dt < time_limit:
+                        # 太舊了直接跳過，並把它當作已讀以防下次又抓到
+                        new_seen_ids.add(topic_id)
+                        continue
+                except Exception:
+                    pass
+
             if topic_id in seen_posts:
                 continue
                 
             title = topic.get("title", "")
             slug = topic.get("slug", "")
             tags = topic.get("tags", [])
-            created_at = topic.get("created_at", "")
             reply_count = topic.get("reply_count", 0)
             
             title_lower = title.lower()
@@ -108,7 +123,7 @@ def fetch_roblox_official_news():
                 post_url = f"https://devforum.roblox.com/t/{slug}/{topic_id}" if slug and topic_id else "https://devforum.roblox.com"
                 
                 print(f"🔥 [新發現官方公告] {title}")
-                send_to_discord(title, post_url, created_at, reply_count, tags)
+                send_to_discord(title, post_url, created_at_str, reply_count, tags)
                 
         save_seen_posts(new_seen_ids)
         print(f"檢索完畢。本次新增推送 {new_matched_count} 筆新公告。")
