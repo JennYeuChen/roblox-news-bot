@@ -26,8 +26,7 @@ jobs:
       - name: Run crawler script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        working-directory: ./roblox-news-bot
-        run: python roblox_news_discord.py
+        run: python roblox_news_monitor.py
 
       - name: Commit and push changes if seen_posts.json updated
         working-directory: ./roblox-news-bot
