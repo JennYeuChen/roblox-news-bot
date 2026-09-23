@@ -22,7 +22,42 @@ def save_seen_posts(seen_set):
     except Exception as e:
         print(f"[警告] 無法儲存已讀紀錄: {e}")
 
-def send_to_discord(title, post_url, created_at, reply_count, tags):
+def get_allowed_category_ids():
+    """動態獲取 Updates, Bug Reports, Feature Requests 及其子分類的 ID"""
+    url = "https://devforum.roblox.com/categories.json"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    allowed_names = {"updates", "bug reports", "feature requests"}
+    allowed_ids = set()
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        categories = data.get("category_list", {}).get("categories", [])
+        
+        cat_map = {cat["id"]: cat for cat in categories}
+        
+        for cat in categories:
+            cat_name = cat.get("name", "").lower()
+            cat_id = cat.get("id")
+            parent_id = cat.get("parent_category_id")
+            
+            if cat_name in allowed_names:
+                allowed_ids.add(cat_id)
+                for sub_id in cat.get("subcategory_ids", []):
+                    allowed_ids.add(sub_id)
+            elif parent_id in cat_map and cat_map[parent_id].get("name", "").lower() in allowed_names:
+                allowed_ids.add(cat_id)
+                
+    except Exception as e:
+        print(f"[警告] 無法取得分類對照表: {e}")
+        return None
+        
+    return allowed_ids
+
+def send_to_discord(title, post_url, created_at, tags):
     if not DISCORD_WEBHOOK_URL or DISCORD_WEBHOOK_URL == "YOUR_DISCORD_WEBHOOK_URL":
         print("[提示] 尚未設定 Discord Webhook 網址。")
         return
@@ -33,14 +68,13 @@ def send_to_discord(title, post_url, created_at, reply_count, tags):
     embed = {
         "title": f"🚀 Roblox 開發者論壇新動態",
         "description": f"**[{title}]({post_url})**",
-        "color": 3447003, # 藍色風格
+        "color": 3447003,
         "fields": [
             {"name": "📌 標籤", "value": f"`{tag_str}`", "inline": True},
-            {"name": "💬 回覆數", "value": f"{reply_count} 則", "inline": True},
             {"name": "🕒 發布時間", "value": formatted_time, "inline": False}
         ],
         "footer": {
-            "text": "Roblox DevForum Live Monitor"
+            "text": "Roblox DevForum Monitor"
         }
     }
 
@@ -67,6 +101,7 @@ def fetch_roblox_official_news():
     }
     
     seen_posts = load_seen_posts()
+    allowed_category_ids = get_allowed_category_ids()
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -79,15 +114,15 @@ def fetch_roblox_official_news():
         new_matched_count = 0
         new_seen_ids = set(seen_posts)
         
-        # 設定時間限制：只抓最近 1 天內的文章，避免洗版舊文
         now = datetime.now(timezone.utc)
         time_limit = now - timedelta(days=1)
         
         for topic in topics:
             topic_id = topic.get("id")
+            category_id = topic.get("category_id")
             created_at_str = topic.get("created_at", "")
             
-            # 時間過濾
+            # 時間過濾 (1天內)
             if created_at_str:
                 try:
                     created_at_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
@@ -100,19 +135,22 @@ def fetch_roblox_official_news():
             if topic_id in seen_posts:
                 continue
                 
+            # 分類過濾 (只允許 Updates, Bug Reports, Feature Requests)
+            if allowed_category_ids is not None and category_id not in allowed_category_ids:
+                new_seen_ids.add(topic_id)
+                continue
+                
             title = topic.get("title", "")
             slug = topic.get("slug", "")
             tags = topic.get("tags", [])
-            reply_count = topic.get("reply_count", 0)
             
-            # 直接全部納入抓取範圍（不設關鍵字限制）
             new_matched_count += 1
             new_seen_ids.add(topic_id)
             
             post_url = f"https://devforum.roblox.com/t/{slug}/{topic_id}" if slug and topic_id else "https://devforum.roblox.com"
             
             print(f"🔥 [新討論] {title}")
-            send_to_discord(title, post_url, created_at_str, reply_count, tags)
+            send_to_discord(title, post_url, created_at_str, tags)
                 
         save_seen_posts(new_seen_ids)
         print(f"檢索完畢。本次新增推送 {new_matched_count} 筆新討論。")
