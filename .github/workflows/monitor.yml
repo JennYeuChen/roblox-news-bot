@@ -9,6 +9,10 @@ on:
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
+    # 解決 Node 20 棄用造成的執行中斷問題
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
