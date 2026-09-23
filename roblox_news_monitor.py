@@ -23,25 +23,18 @@ def save_seen_posts(seen_set):
         print(f"[警告] 無法儲存已讀紀錄: {e}")
 
 def get_category_mapping():
-    """
-    動態獲取分類對照表，將 ID 對應到三大類名稱與 Discord 顏色：
-    - Updates: 藍色 (3447003)
-    - Bug Reports: 紅色 (15158332)
-    - Feature Requests: 綠色 (3066993)
-    """
     url = "https://devforum.roblox.com/categories.json"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # 定義目標主分類及其顯示樣式
     target_categories = {
-        "updates": {"name": "Updates", "color": 3447003},          # 藍色
-        "bug reports": {"name": "Bug Reports", "color": 15158332}, # 紅色
-        "feature requests": {"name": "Feature Requests", "color": 3066993} # 綠色
+        "updates": {"name": "Updates", "color": 3447003},
+        "bug reports": {"name": "Bug Reports", "color": 15158332},
+        "feature requests": {"name": "Feature Requests", "color": 3066993}
     }
     
-    category_map = {} # 格式: { category_id: {"name": 類別名稱, "color": 顏色碼} }
+    category_map = {}
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -49,7 +42,6 @@ def get_category_mapping():
         data = response.json()
         categories = data.get("category_list", {}).get("categories", [])
         
-        # 建立輔助查詢字典
         cat_info_map = {cat["id"]: cat for cat in categories}
         
         for cat in categories:
@@ -57,7 +49,6 @@ def get_category_mapping():
             cat_name_lower = cat.get("name", "").lower()
             parent_id = cat.get("parent_category_id")
             
-            # 判斷是否為主分類
             matched_target = None
             if cat_name_lower in target_categories:
                 matched_target = target_categories[cat_name_lower]
@@ -68,13 +59,11 @@ def get_category_mapping():
             
             if matched_target:
                 category_map[cat_id] = matched_target
-                # 同時把底下的子分類 ID 也全部納入
                 for sub_id in cat.get("subcategory_ids", []):
                     category_map[sub_id] = matched_target
                     
     except Exception as e:
         print(f"[警告] 無法取得分類對照表: {e}")
-        return {}
         
     return category_map
 
@@ -146,6 +135,7 @@ def fetch_roblox_official_news():
             topic_id = topic.get("id")
             category_id = topic.get("category_id")
             created_at_str = topic.get("created_at", "")
+            title = topic.get("title", "")
             
             # 時間過濾 (1天內)
             if created_at_str:
@@ -160,13 +150,13 @@ def fetch_roblox_official_news():
             if topic_id in seen_posts:
                 continue
                 
-            # 分類過濾：如果不在我們指定的三大類中，直接略過
+            # 分類過濾與除錯
             if category_id not in category_map:
+                print(f"[略過-分類不符] ID: {category_id} | 標題: {title}")
                 new_seen_ids.add(topic_id)
                 continue
                 
             cat_info = category_map[category_id]
-            title = topic.get("title", "")
             slug = topic.get("slug", "")
             tags = topic.get("tags", [])
             
