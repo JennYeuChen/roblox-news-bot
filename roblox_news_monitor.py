@@ -22,68 +22,20 @@ def save_seen_posts(seen_set):
     except Exception as e:
         print(f"[警告] 無法儲存已讀紀錄: {e}")
 
-def get_category_mapping():
-    url = "https://devforum.roblox.com/categories.json"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    
-    target_categories = {
-        "updates": {"name": "Updates", "color": 3447003},
-        "bug reports": {"name": "Bug Reports", "color": 15158332},
-        "feature requests": {"name": "Feature Requests", "color": 3066993}
-    }
-    
-    category_map = {}
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        categories = data.get("category_list", {}).get("categories", [])
-        
-        cat_info_map = {cat["id"]: cat for cat in categories}
-        
-        for cat in categories:
-            cat_id = cat.get("id")
-            cat_name_lower = cat.get("name", "").lower()
-            parent_id = cat.get("parent_category_id")
-            
-            matched_target = None
-            if cat_name_lower in target_categories:
-                matched_target = target_categories[cat_name_lower]
-            elif parent_id in cat_info_map:
-                parent_name_lower = cat_info_map[parent_id].get("name", "").lower()
-                if parent_name_lower in target_categories:
-                    matched_target = target_categories[parent_name_lower]
-            
-            if matched_target:
-                category_map[cat_id] = matched_target
-                for sub_id in cat.get("subcategory_ids", []):
-                    category_map[sub_id] = matched_target
-                    
-    except Exception as e:
-        print(f"[警告] 無法取得分類對照表: {e}")
-        
-    return category_map
-
-def send_to_discord(title, post_url, created_at, tags, cat_info):
+def send_to_discord(title, post_url, created_at, tags):
     if not DISCORD_WEBHOOK_URL or DISCORD_WEBHOOK_URL == "YOUR_DISCORD_WEBHOOK_URL":
         print("[提示] 尚未設定 Discord Webhook 網址。")
         return
 
     formatted_time = created_at.replace("T", " ")[:19] if created_at else "未知時間"
     tag_str = ", ".join(tags) if tags else "無"
-    
-    cat_name = cat_info.get("name", "Roblox DevForum")
-    cat_color = cat_info.get("color", 3447003)
 
     embed = {
-        "title": f"🚀 [{cat_name}] 新動態",
+        "title": f"🚀 [Roblox Updates] 官方公告",
         "description": f"**[{title}]({post_url})**",
-        "color": cat_color,
+        "color": 3447003, # 藍色
         "fields": [
-            {"name": "📂 所屬分類", "value": f"`{cat_name}`", "inline": True},
+            {"name": "📂 所屬分類", "value": "`Updates / Announcements`", "inline": True},
             {"name": "📌 標籤", "value": f"`{tag_str}`", "inline": True},
             {"name": "🕒 發布時間", "value": formatted_time, "inline": False}
         ],
@@ -93,7 +45,7 @@ def send_to_discord(title, post_url, created_at, tags, cat_info):
     }
 
     payload = {
-        "username": "Roblox 開發者動態",
+        "username": "Roblox 官方更新通知",
         "embeds": [embed]
     }
 
@@ -115,7 +67,6 @@ def fetch_roblox_official_news():
     }
     
     seen_posts = load_seen_posts()
-    category_map = get_category_mapping()
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -129,7 +80,7 @@ def fetch_roblox_official_news():
         new_seen_ids = set(seen_posts)
         
         now = datetime.now(timezone.utc)
-        time_limit = now - timedelta(days=1)
+        time_limit = now - timedelta(days=2) # 放寬到 2 天內，確保漏掉的也能抓到
         
         for topic in topics:
             topic_id = topic.get("id")
@@ -137,7 +88,7 @@ def fetch_roblox_official_news():
             created_at_str = topic.get("created_at", "")
             title = topic.get("title", "")
             
-            # 時間過濾 (1天內)
+            # 時間過濾
             if created_at_str:
                 try:
                     created_at_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
@@ -150,13 +101,15 @@ def fetch_roblox_official_news():
             if topic_id in seen_posts:
                 continue
                 
-            # 分類過濾與除錯
-            if category_id not in category_map:
-                print(f"[略過-分類不符] ID: {category_id} | 標題: {title}")
+            # 直接精準鎖定 Updates 分類 ID (45) 以及其子分類（通常 API 回傳的 category_id 或是其父層相關）
+            # 為了保險，如果文章屬於 Updates 相關板塊，我們直接放行
+            # 註：DevForum 中 ID 45 是主分類，子分類也會帶有對應的歸屬
+            if category_id != 45:
+                # 檢查是否為該板塊底下的文章（有時候子分類 ID 不同，但我們只要是 updates 頁面出來的都可以抓）
+                # 這裡直接過濾掉非 45 的其他無關板塊
                 new_seen_ids.add(topic_id)
                 continue
                 
-            cat_info = category_map[category_id]
             slug = topic.get("slug", "")
             tags = topic.get("tags", [])
             
@@ -165,8 +118,8 @@ def fetch_roblox_official_news():
             
             post_url = f"https://devforum.roblox.com/t/{slug}/{topic_id}" if slug and topic_id else "https://devforum.roblox.com"
             
-            print(f"🔥 [{cat_info['name']}] {title}")
-            send_to_discord(title, post_url, created_at_str, tags, cat_info)
+            print(f"🔥 [Updates] {title}")
+            send_to_discord(title, post_url, created_at_str, tags)
                 
         save_seen_posts(new_seen_ids)
         print(f"檢索完畢。本次新增推送 {new_matched_count} 筆新討論。")
