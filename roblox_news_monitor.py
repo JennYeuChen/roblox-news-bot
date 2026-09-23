@@ -18,7 +18,7 @@ def load_seen_posts():
 def save_seen_posts(seen_set):
     try:
         with open(SEEN_FILE, "w", encoding="utf-8") as f:
-            json.dump(list(seen_set)[-100:], f, ensure_ascii=False, indent=4)
+            json.dump(list(seen_set)[-200:], f, ensure_ascii=False, indent=4)
     except Exception as e:
         print(f"[警告] 無法儲存已讀紀錄: {e}")
 
@@ -31,21 +31,21 @@ def send_to_discord(title, post_url, created_at, reply_count, tags):
     tag_str = ", ".join(tags) if tags else "無"
 
     embed = {
-        "title": f"🚀 發現 Roblox 官方新公告！",
+        "title": f"🚀 Roblox 開發者論壇新動態",
         "description": f"**[{title}]({post_url})**",
-        "color": 16711680,
+        "color": 3447003, # 藍色風格
         "fields": [
             {"name": "📌 標籤", "value": f"`{tag_str}`", "inline": True},
             {"name": "💬 回覆數", "value": f"{reply_count} 則", "inline": True},
             {"name": "🕒 發布時間", "value": formatted_time, "inline": False}
         ],
         "footer": {
-            "text": "Roblox News Monitor (Bloxy News Style)"
+            "text": "Roblox DevForum Live Monitor"
         }
     }
 
     payload = {
-        "username": "Roblox 新聞快報",
+        "username": "Roblox 開發者動態",
         "embeds": [embed]
     }
 
@@ -79,21 +79,19 @@ def fetch_roblox_official_news():
         new_matched_count = 0
         new_seen_ids = set(seen_posts)
         
-        # 設定時間限制：只接受最近 3 天內的文章 (避免抓到 21 天前的舊置頂文)
+        # 設定時間限制：只抓最近 1 天內的文章，避免洗版舊文
         now = datetime.now(timezone.utc)
-        time_limit = now - timedelta(days=3)
+        time_limit = now - timedelta(days=1)
         
         for topic in topics:
             topic_id = topic.get("id")
-            
-            # 就算還沒被記錄過，如果文章太舊也直接加入 seen 避免它被推播
             created_at_str = topic.get("created_at", "")
+            
+            # 時間過濾
             if created_at_str:
                 try:
-                    # 解析 ISO 時間
                     created_at_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
                     if created_at_dt < time_limit:
-                        # 太舊了直接跳過，並把它當作已讀以防下次又抓到
                         new_seen_ids.add(topic_id)
                         continue
                 except Exception:
@@ -107,26 +105,17 @@ def fetch_roblox_official_news():
             tags = topic.get("tags", [])
             reply_count = topic.get("reply_count", 0)
             
-            title_lower = title.lower()
-            tag_string = " ".join(tags).lower()
+            # 直接全部納入抓取範圍（不設關鍵字限制）
+            new_matched_count += 1
+            new_seen_ids.add(topic_id)
             
-            has_official_title = any(kw in title_lower for kw in [
-                "roadmap", "release notes", "full release", "studio beta", 
-                "creator roadmap", "update:", "updates for"
-            ])
-            has_official_tags = any(kw in tag_string for kw in ["announcements", "featured"])
+            post_url = f"https://devforum.roblox.com/t/{slug}/{topic_id}" if slug and topic_id else "https://devforum.roblox.com"
             
-            if has_official_title or has_official_tags:
-                new_matched_count += 1
-                new_seen_ids.add(topic_id)
-                
-                post_url = f"https://devforum.roblox.com/t/{slug}/{topic_id}" if slug and topic_id else "https://devforum.roblox.com"
-                
-                print(f"🔥 [新發現官方公告] {title}")
-                send_to_discord(title, post_url, created_at_str, reply_count, tags)
+            print(f"🔥 [新討論] {title}")
+            send_to_discord(title, post_url, created_at_str, reply_count, tags)
                 
         save_seen_posts(new_seen_ids)
-        print(f"檢索完畢。本次新增推送 {new_matched_count} 筆新公告。")
+        print(f"檢索完畢。本次新增推送 {new_matched_count} 筆新討論。")
             
     except requests.exceptions.RequestException as e:
         print(f"[錯誤] 網路請求失敗: {e}")
