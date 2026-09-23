@@ -22,20 +22,93 @@ def save_seen_posts(seen_set):
     except Exception as e:
         print(f"[警告] 無法儲存已讀紀錄: {e}")
 
-def send_to_discord(title, post_url, created_at, tags):
+def get_updates_category_mapping():
+    """
+    自動追蹤 Updates 主分類 (ID: 45) 以及其底下的所有子分類
+    （Announcements, News & Alerts, Release Notes, Community & Events 等）
+    """
+    url = "https://devforum.roblox.com/categories.json"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    category_map = {}
+    allowed_ids = {45} # 根目錄 Updates ID
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        categories = data.get("category_list", {}).get("categories", [])
+        
+        cat_info_map = {cat["id"]: cat for cat in categories}
+        
+        # 遞迴找出所有屬於 updates (ID: 45) 的子分類
+        changed = True
+        while changed:
+            changed = False
+            for cat in categories:
+                cat_id = cat.get("id")
+                parent_id = cat.get("parent_category_id")
+                
+                if parent_id in allowed_ids and cat_id not in allowed_ids:
+                    allowed_ids.add(cat_id)
+                    changed = True
+                    
+                if cat_id in allowed_ids:
+                    for sub_id in cat.get("subcategory_ids", []):
+                        if sub_id not in allowed_ids:
+                            allowed_ids.add(sub_id)
+                            changed = True
+
+        # 為每個子分類建立名稱與顏色對應
+        for cat_id in allowed_ids:
+            if cat_id in cat_info_map:
+                cat_name = cat_info_map[cat_id].get("name", "Updates")
+            else:
+                cat_name = "Updates"
+                
+            # 根據不同子分類給予不同顏色
+            color = 3447003 # 預設藍色
+            name_lower = cat_name.lower()
+            if "announcement" in name_lower:
+                color = 3447003   # 藍色
+            elif "news" in name_lower or "alert" in name_lower:
+                color = 16761035  # 黃色/金色
+            elif "release" in name_lower:
+                color = 5763719   # 綠色
+            elif "community" in name_lower or "event" in name_lower:
+                color = 10181046  # 紫色
+                
+            category_map[cat_id] = {
+                "name": f"Updates / {cat_name}",
+                "color": color
+            }
+            
+    except Exception as e:
+        print(f"[警告] 無法取得分類對照表: {e}")
+        # 預設保底：至少確保 ID 45 能通過
+        category_map[45] = {"name": "Updates / Announcements", "color": 3447003}
+        
+    return category_map
+
+def send_to_discord(title, post_url, created_at, tags, cat_info):
     if not DISCORD_WEBHOOK_URL or DISCORD_WEBHOOK_URL == "YOUR_DISCORD_WEBHOOK_URL":
         print("[提示] 尚未設定 Discord Webhook 網址。")
         return
 
     formatted_time = created_at.replace("T", " ")[:19] if created_at else "未知時間"
     tag_str = ", ".join(tags) if tags else "無"
+    
+    cat_name = cat_info.get("name", "Updates")
+    cat_color = cat_info.get("color", 3447003)
 
     embed = {
-        "title": f"🚀 [Roblox Updates] 官方公告",
+        "title": f"🚀 [{cat_name}] 新動態",
         "description": f"**[{title}]({post_url})**",
-        "color": 3447003, # 藍色
+        "color": cat_color,
         "fields": [
-            {"name": "📂 所屬分類", "value": "`Updates / Announcements`", "inline": True},
+            {"name": "📂 所屬分類", "value": f"`{cat_name}`", "inline": True},
             {"name": "📌 標籤", "value": f"`{tag_str}`", "inline": True},
             {"name": "🕒 發布時間", "value": formatted_time, "inline": False}
         ],
@@ -67,6 +140,7 @@ def fetch_roblox_official_news():
     }
     
     seen_posts = load_seen_posts()
+    category_map = get_updates_category_mapping()
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -80,7 +154,7 @@ def fetch_roblox_official_news():
         new_seen_ids = set(seen_posts)
         
         now = datetime.now(timezone.utc)
-        time_limit = now - timedelta(days=2) # 放寬到 2 天內，確保漏掉的也能抓到
+        time_limit = now - timedelta(days=3) # 放寬到 3 天內，確保截圖裡的每週回顧跟路線圖都能被撈出來
         
         for topic in topics:
             topic_id = topic.get("id")
@@ -101,15 +175,12 @@ def fetch_roblox_official_news():
             if topic_id in seen_posts:
                 continue
                 
-            # 直接精準鎖定 Updates 分類 ID (45) 以及其子分類（通常 API 回傳的 category_id 或是其父層相關）
-            # 為了保險，如果文章屬於 Updates 相關板塊，我們直接放行
-            # 註：DevForum 中 ID 45 是主分類，子分類也會帶有對應的歸屬
-            if category_id != 45:
-                # 檢查是否為該板塊底下的文章（有時候子分類 ID 不同，但我們只要是 updates 頁面出來的都可以抓）
-                # 這裡直接過濾掉非 45 的其他無關板塊
+            # 檢查是否屬於 Updates 及其四大子分類中
+            if category_id not in category_map:
                 new_seen_ids.add(topic_id)
                 continue
                 
+            cat_info = category_map[category_id]
             slug = topic.get("slug", "")
             tags = topic.get("tags", [])
             
@@ -118,8 +189,8 @@ def fetch_roblox_official_news():
             
             post_url = f"https://devforum.roblox.com/t/{slug}/{topic_id}" if slug and topic_id else "https://devforum.roblox.com"
             
-            print(f"🔥 [Updates] {title}")
-            send_to_discord(title, post_url, created_at_str, tags)
+            print(f"🔥 [{cat_info['name']}] {title}")
+            send_to_discord(title, post_url, created_at_str, tags, cat_info)
                 
         save_seen_posts(new_seen_ids)
         print(f"檢索完畢。本次新增推送 {new_matched_count} 筆新討論。")
