@@ -1,0 +1,34 @@
+name: Roblox News Monitor
+
+on:
+  schedule:
+    # 每 30 分鐘執行一次
+    - cron: '*/30 * * * *'
+  workflow_dispatch:  # 允許手動觸發
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run crawler script
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python roblox_news_discord.py
+
+      - name: Commit and push changes if seen_posts.json updated
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add seen_posts.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update seen posts [skip ci]" && git push)
