@@ -30,9 +30,17 @@ def send_to_discord(title, post_url, created_at, tags):
     formatted_time = created_at.replace("T", " ")[:19] if created_at else "未知時間"
     tag_str = ", ".join(tags) if tags else "無"
 
-    # 🎨 在這裡設定顏色（十進位色碼）
+    # 🎨 根據標題或關鍵字自動判斷顏色（紅、黃、綠、藍）
     # 紅色: 15548997, 黃色: 16776960, 綠色: 5763719, 藍色: 3447003
-    embed_color = 3447003  # <- 把這裡改成你要的顏色數字
+    embed_color = 3447003  # 預設藍色
+
+    title_lower = title.lower()
+    if any(keyword in title_lower for keyword in ("bug", "error", "issue")):
+        embed_color = 15548997  # 紅色（錯誤/問題）
+    elif any(keyword in title_lower for keyword in ("update", "release", "v")):
+        embed_color = 5763719  # 綠色（更新/版本）
+    elif any(keyword in title_lower for keyword in ("warning", "alert", "notice")):
+        embed_color = 16776960  # 黃色（警告/注意）
 
     embed = {
         "title": f"🚀 [Updates / Announcements] 新公告",
