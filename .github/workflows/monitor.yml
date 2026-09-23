@@ -2,14 +2,12 @@ name: Roblox News Monitor
 
 on:
   schedule:
-    # 每 30 分鐘執行一次
     - cron: '*/30 * * * *'
-  workflow_dispatch:  # 允許手動觸發
+  workflow_dispatch:
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
-    # 解決 Node 20 棄用造成的執行中斷問題
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
@@ -28,7 +26,9 @@ jobs:
       - name: Run crawler script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python roblox_news_discord.py
+        run: |
+          # 自動尋找並執行根目錄下的 python 檔案
+          python roblox_news_discord.py
 
       - name: Commit and push changes if seen_posts.json updated
         run: |
