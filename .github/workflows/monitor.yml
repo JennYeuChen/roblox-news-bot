@@ -15,17 +15,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests
+
       - name: Run crawler script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        # 直接切進子資料夾執行 Python
-        working-directory: ./roblox-news-bot
-        run: |
-          pip install requests
-          python "roblox news monitor.py"
+        run: python "roblox news monitor.py"
 
       - name: Commit and push changes if seen_posts.json updated
-        working-directory: ./roblox-news-bot
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
