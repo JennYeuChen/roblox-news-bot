@@ -30,10 +30,14 @@ def send_to_discord(title, post_url, created_at, tags):
     formatted_time = created_at.replace("T", " ")[:19] if created_at else "未知時間"
     tag_str = ", ".join(tags) if tags else "無"
 
+    # 🎨 在這裡設定顏色（十進位色碼）
+    # 紅色: 15548997, 黃色: 16776960, 綠色: 5763719, 藍色: 3447003
+    embed_color = 3447003  # <- 把這裡改成你要的顏色數字
+
     embed = {
         "title": f"🚀 [Updates / Announcements] 新公告",
         "description": f"**[{title}]({post_url})**",
-        "color": 3447003, # 藍色
+        "color": embed_color,
         "fields": [
             {"name": "📂 所屬分類", "value": "`Announcements`", "inline": True},
             {"name": "📌 標籤", "value": f"`{tag_str}`", "inline": True},
