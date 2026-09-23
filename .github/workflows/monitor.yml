@@ -8,9 +8,6 @@ on:
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
-    env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,10 +20,10 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run crawler script
+      - name: Run script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python "roblox news monitor.py"
+        run: python roblox_news_monitor.py
 
       - name: Commit and push changes if seen_posts.json updated
         run: |
